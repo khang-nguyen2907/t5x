@@ -1026,6 +1026,31 @@ def _standardize_output_dirs(output_dir: Union[str, Mapping[str, str]]):
   return output_dirs
 
 
+def _handle_new_and_old_preprocessor(
+    create_preprocessor_fn: CreatePreprocessorFn,
+    batch_size: Optional[int],
+    output_features: Optional[Mapping[str, seqio.Feature]],
+    task_feature_lengths: Mapping[str, int],
+    tokenized_inputs: bool,
+):
+  """Handle the new and old create_preprocessor_fn signatures for backwards compatibility."""
+  # TODO(marcrasi): Delete after migrating clients.
+  if 'batch_size' in inspect.signature(create_preprocessor_fn).parameters:
+    # New signature.
+    preprocessor, input_signature = create_preprocessor_fn(
+        batch_size, output_features, task_feature_lengths, tokenized_inputs
+    )  # type: ignore
+  else:
+    # Old signature.
+    preprocessor = create_preprocessor_fn(
+        output_features, task_feature_lengths, tokenized_inputs
+    )  # type: ignore
+    input_signature = create_single_tensor_input_signature(
+        batch_size, task_feature_lengths, tokenized_inputs
+    )
+  return preprocessor, input_signature
+
+
 def save(
     *,
     model: models.BaseTransformerModel,
@@ -1125,20 +1150,13 @@ def save(
   if output_vocab_feature_name:
     output_vocab = output_features[output_vocab_feature_name].vocabulary
 
-  # Handle the new and old create_preprocessor_fn signatures, for backwards
-  # compatibility.
-  # TODO(marcrasi): Delete after migrating clients.
-  if 'batch_size' in inspect.signature(create_preprocessor_fn).parameters:
-    # New signature.
-    preprocessor, input_signature = create_preprocessor_fn(
-        batch_size, output_features, task_feature_lengths,
-        tokenized_inputs)  # type: ignore
-  else:
-    # Old signature.
-    preprocessor = create_preprocessor_fn(output_features, task_feature_lengths,
-                                          tokenized_inputs)  # type: ignore
-    input_signature = create_single_tensor_input_signature(
-        batch_size, task_feature_lengths, tokenized_inputs)
+  preprocessor, input_signature = _handle_new_and_old_preprocessor(
+      create_preprocessor_fn=create_preprocessor_fn,
+      batch_size=batch_size,
+      output_features=output_features,
+      task_feature_lengths=task_feature_lengths,
+      tokenized_inputs=tokenized_inputs,
+  )
 
   logging.info('Converting inference function...')
 
